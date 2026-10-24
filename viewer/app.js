@@ -43,26 +43,42 @@
       .catch(function () { return null; });
   }
 
+  /* 제목만으로 검색하면 리메이크·속편·동명 영화가 잘못 걸릴 수 있다.
+     data/tmdb-ids.json 에 영화별로 확인해 둔 TMDb ID가 있으면 검색을
+     건너뛰고 그 ID로 바로 조회한다. */
+  function tmdbById(id) {
+    var url = TMDB.api + '/movie/' + id + '?api_key=' + encodeURIComponent(TMDB.key) + '&language=ko-KR';
+    return fetch(url).then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+  }
+
   function tmdbResolve(m) {
     if (!TMDB.key) return Promise.resolve(null);
     var cached = tmdbCacheGet(m.no);
     if (cached !== undefined) return Promise.resolve(cached);
 
-    var year = (m.year.match(/\d{4}/) || [])[0];
-    var isKorean = m.country.indexOf('한국') >= 0;
-    var primary = isKorean ? m.title : (m.original || m.title);
-    var fallback = isKorean ? m.original : m.title;
+    var knownId = state.tmdbIds[m.no];
+    var hitPromise;
+    if (knownId) {
+      hitPromise = tmdbById(knownId);
+    } else {
+      var year = (m.year.match(/\d{4}/) || [])[0];
+      var isKorean = m.country.indexOf('한국') >= 0;
+      var primary = isKorean ? m.title : (m.original || m.title);
+      var fallback = isKorean ? m.original : m.title;
 
-    return tmdbQuery(primary, year)
-      .then(function (hit) { return hit || tmdbQuery(primary, null); })
-      .then(function (hit) {
-        return hit || (fallback && fallback !== primary ? tmdbQuery(fallback, year) : null);
-      })
-      .then(function (hit) {
-        var v = hit && hit.poster_path ? { poster: hit.poster_path, id: hit.id } : null;
-        tmdbCacheSet(m.no, v);
-        return v;
-      });
+      hitPromise = tmdbQuery(primary, year)
+        .then(function (hit) { return hit || tmdbQuery(primary, null); })
+        .then(function (hit) {
+          return hit || (fallback && fallback !== primary ? tmdbQuery(fallback, year) : null);
+        });
+    }
+
+    return hitPromise.then(function (hit) {
+      var v = hit && hit.poster_path ? { poster: hit.poster_path, id: hit.id } : null;
+      tmdbCacheSet(m.no, v);
+      return v;
+    });
   }
 
   /* data/pd-posters.json 에 올라 있는, 미국 내 퍼블릭도메인으로 확인된
@@ -97,6 +113,7 @@
     byNo: {},
     byChapter: {},
     pdPosters: {},
+    tmdbIds: {},
     q: ''
   };
 
@@ -134,7 +151,14 @@
         d.posters.forEach(function (p) { state.pdPosters[p.no] = p; });
       })
       .catch(function () { /* 없어도 TMDb·플레이스홀더로 대체된다 */ });
-    return Promise.all([movies, pd]);
+    var tmdbIds = fetch(BASE + 'data/tmdb-ids.json', { cache: 'no-cache' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.ids) return;
+        d.ids.forEach(function (e) { state.tmdbIds[e.no] = e.tmdb_id; });
+      })
+      .catch(function () { /* 없어도 제목 검색으로 대체된다 */ });
+    return Promise.all([movies, pd, tmdbIds]);
   }
 
   /* ───────── 차례(왼쪽) ───────── */
