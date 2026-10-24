@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>영화도감</title>
+<meta name="author" content="리프 메타 (leaf meta)">
+<meta name="description" content="세계 영화를 시대·장르·지역으로 둘러보는 도감. 포스터는 TMDb에서 실시간으로 불러온다. 번호를 따라, 혹은 원하는 장르부터 바로 읽는 웹 뷰어.">
+<meta property="og:type" content="book">
+<meta property="og:title" content="영화도감 — 한 권으로 보는 세계 영화">
+<meta property="og:description" content="시대·장르·지역에 따라 부로 나눈 영화들. 한 편에 한 쪽, 줄거리·해설·명대사·트리비아까지 같은 틀로 담았다. 포스터는 TMDb API로 실시간 연동한다.">
+<link rel="stylesheet" href="viewer/app.css">
+<script>
+  try {
+    var t = JSON.parse(localStorage.getItem('moviedex.theme') || 'null');
+    if (!t) t = 'light';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <button id="menu" class="icon-btn only-narrow" aria-label="차례 열기" aria-expanded="false">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14"/></svg>
+  </button>
+
+  <a class="mark" href="#/" aria-label="처음으로">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2"/>
+      <path d="M3 9h18M7 4v5M17 4v5M7 15h4"/>
+    </svg>
+  </a>
+
+  <div class="titles">
+    <h1>영화도감</h1>
+    <p>한 권으로 보는 세계 영화</p>
+  </div>
+
+  <div class="tools">
+    <label class="field only-wide">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13.5 13.5 17 17"/></svg>
+      <input id="q" type="search" placeholder="제목, 감독, 배우, 나라…  ( / )" autocomplete="off" aria-label="검색">
+      <button id="q-clear" class="icon-btn" aria-label="검색어 지우기" hidden>×</button>
+    </label>
+    <button id="theme" class="icon-btn" aria-label="밝기 바꾸기" title="밝기 바꾸기 (T)">
+      <svg class="ic-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg>
+      <svg class="ic-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
+    </button>
+    <a class="btn" href="https://github.com/leaf-kit/book-movie" target="_blank" rel="noopener">깃허브에서 보기</a>
+    <div class="star">
+      <a class="star-act" href="https://github.com/leaf-kit/book-movie" target="_blank" rel="noopener" title="깃허브에서 이 저장소에 별 주기">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.4l2.65 5.37 5.93.86-4.29 4.18 1.01 5.9L12 16.92l-5.3 2.79 1.01-5.9L3.42 9.63l5.93-.86z"/></svg>
+        <span>Star</span>
+      </a>
+      <a class="star-n" id="star-n" href="https://github.com/leaf-kit/book-movie" target="_blank" rel="noopener" hidden></a>
+    </div>
+  </div>
+</header>
+
+<label class="field only-narrow-block">
+  <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13.5 13.5 17 17"/></svg>
+  <input id="q-m" type="search" placeholder="제목, 감독, 배우, 나라…" autocomplete="off" aria-label="검색">
+  <button id="q-clear-m" class="icon-btn" aria-label="검색어 지우기" hidden>×</button>
+</label>
+
+<div class="shell">
+  <div id="scrim" hidden></div>
+
+  <aside id="sidebar" aria-label="차례">
+    <nav id="toc" class="toc"><p class="loading">차례를 읽는 중…</p></nav>
+  </aside>
+
+  <main id="main">
+    <div class="paper">
+      <div id="doc"><p class="loading">여는 중…</p></div>
+    </div>
+    <button id="totop" class="totop" aria-label="맨 위로" hidden>↑</button>
+  </main>
+</div>
+
+<footer class="bottombar">
+  <span>10부 31장으로 나눈 영화들. 포스터 이미지는 <a href="https://www.themoviedb.org/" target="_blank" rel="noopener">TMDb</a>에서 실시간으로 받아 보여 준다 — 이 제품은 TMDb API를 사용하지만 TMDb의 보증이나 인증을 받지 않았다.</span>
+  <span class="keys">←, → 이전 다음 작품 &nbsp; / 검색 &nbsp; T 밝기</span>
+</footer>
+
+<script src="viewer/config.js"></script>
+<script src="viewer/app.js"></script>
+</body>
+</html>
