@@ -394,53 +394,232 @@
     return pos;
   }
 
-  function graphSvg(movies) {
-    if (movies.length < 2) return '<p class="empty">이 구간에는 이어 볼 작품이 둘 미만이다. 시간축에서 범위를 넓혀 본다.</p>';
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs) {
+    var e = document.createElementNS(SVG_NS, tag);
+    if (attrs) for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  /* 노드(원 + 이름표)와 엣지(선, 호버하면 어느 두 작품을 잇는지 뜨는
+     툴팁)를 실제 DOM 요소로 만들어 둔다. 매 애니메이션 프레임마다
+     innerHTML을 다시 그리지 않고 좌표 속성만 갱신하기 위해서다. */
+  function renderGraphInto(container, movies) {
+    container.innerHTML = '';
+    if (movies.length < 2) {
+      container.innerHTML = '<p class="empty">이 구간에는 이어 볼 작품이 둘 미만이다. 시간축에서 범위를 넓혀 본다.</p>';
+      return;
+    }
     var nos = movies.map(function (m) { return m.no; });
     var edges = buildGraphEdges(movies);
-    var W = 920, H = 560;
-    var pos = forceLayout(nos, edges, W, H);
     var degree = {};
     edges.forEach(function (e) {
       degree[e[0]] = (degree[e[0]] || 0) + 1;
       degree[e[1]] = (degree[e[1]] || 0) + 1;
     });
+    var W = 920, H = 560;
 
-    var svg = '<svg class="graph-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="영화 관계망 그래프">';
-    svg += '<g class="edges">' + edges.map(function (e) {
-      var a = pos[e[0]], b = pos[e[1]];
-      return '<line x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1) + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1) +
-        '" data-a="' + e[0] + '" data-b="' + e[1] + '"></line>';
-    }).join('') + '</g>';
-    svg += '<g class="nodes">' + movies.map(function (m) {
-      var p = pos[m.no], part = partOf(m.part);
+    var pos = {};
+    nos.forEach(function (no, i) {
+      var a = (i / Math.max(nos.length, 1)) * Math.PI * 2;
+      pos[no] = { x: W / 2 + Math.cos(a) * W * 0.32, y: H / 2 + Math.sin(a) * H * 0.32, vx: 0, vy: 0 };
+    });
+
+    var svg = svgEl('svg', { class: 'graph-svg', viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': '영화 관계망 그래프' });
+    var gEdges = svgEl('g', { class: 'edges' });
+    var gNodes = svgEl('g', { class: 'nodes' });
+
+    var lineEls = edges.map(function (e) {
+      var l = svgEl('line', { 'data-a': e[0], 'data-b': e[1] });
+      var title = svgEl('title');
+      title.textContent = titleOf(e[0]) + ' ↔ ' + titleOf(e[1]);
+      l.appendChild(title);
+      gEdges.appendChild(l);
+      return l;
+    });
+
+    var nodeEls = movies.map(function (m) {
+      var part = partOf(m.part);
       var r = 5 + Math.min(9, (degree[m.no] || 0) * 1.7);
-      return '<g class="node" data-no="' + m.no + '" tabindex="0">' +
-        '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + part.color + '">' +
-        '<title>' + esc(m.title) + ' (' + esc(m.year) + ')</title></circle></g>';
-    }).join('') + '</g>';
-    svg += '</svg>';
-    svg += '<p class="graph-cap">점 크기는 "같이 보면 좋은 작품"으로 몇 번 이어졌는지를 뜻한다. 점을 누르면 그 작품으로 간다.</p>';
-    return svg;
+      var g = svgEl('g', { class: 'node', 'data-no': m.no, tabindex: '0' });
+      var c = svgEl('circle', { r: r.toFixed(1), fill: part.color });
+      var t = svgEl('title'); t.textContent = m.title + ' (' + m.year + ')';
+      c.appendChild(t);
+      var label = svgEl('text', { class: 'n-label', 'text-anchor': 'middle' });
+      label.textContent = m.title.length > 11 ? m.title.slice(0, 11) + '…' : m.title;
+      g.appendChild(c); g.appendChild(label);
+      gNodes.appendChild(g);
+      return { g: g, c: c, label: label, no: m.no, r: r };
+    });
+
+    svg.appendChild(gEdges); svg.appendChild(gNodes);
+    container.appendChild(svg);
+    container.insertAdjacentHTML('beforeend',
+      '<p class="graph-cap">점 크기는 "같이 보면 좋은 작품"으로 몇 번 이어졌는지를 뜻한다. ' +
+      '이름 위에 올리면 그 작품과 이어진 선이 밝아지고, 선 위에 올리면 어느 두 작품을 잇는지 뜬다. 점을 누르면 그 작품으로 간다.</p>');
+
+    wireGraphEvents(gNodes, lineEls, nodeEls);
+    animateForce(pos, nos, edges, lineEls, nodeEls, W, H);
   }
 
-  function wireGraph(root) {
-    var svg = $('.graph-svg', root);
-    if (!svg) return;
-    $$('.node', svg).forEach(function (g) {
-      var no = g.getAttribute('data-no');
-      g.addEventListener('mouseenter', function () { setGraphHi(svg, no, true); });
-      g.addEventListener('mouseleave', function () { setGraphHi(svg, no, false); });
-      g.addEventListener('click', function () { go('#/movie/' + no); });
-      g.addEventListener('keydown', function (e) { if (e.key === 'Enter') go('#/movie/' + no); });
+  function titleOf(no) { var m = state.byNo[no]; return m ? m.title : ''; }
+
+  function wireGraphEvents(gNodes, lineEls, nodeEls) {
+    nodeEls.forEach(function (ne) {
+      ne.g.addEventListener('mouseenter', function () { gNodes.appendChild(ne.g); setGraphHi(ne.no, true, lineEls, nodeEls); });
+      ne.g.addEventListener('mouseleave', function () { setGraphHi(ne.no, false, lineEls, nodeEls); });
+      ne.g.addEventListener('focus', function () { setGraphHi(ne.no, true, lineEls, nodeEls); });
+      ne.g.addEventListener('blur', function () { setGraphHi(ne.no, false, lineEls, nodeEls); });
+      ne.g.addEventListener('click', function () { go('#/movie/' + ne.no); });
+      ne.g.addEventListener('keydown', function (e) { if (e.key === 'Enter') go('#/movie/' + ne.no); });
     });
   }
-  function setGraphHi(svg, no, on) {
-    $$('.edges line', svg).forEach(function (l) {
-      if (l.getAttribute('data-a') === no || l.getAttribute('data-b') === no) l.classList.toggle('hi', on);
+  function setGraphHi(no, on, lineEls, nodeEls) {
+    var noStr = String(no);
+    lineEls.forEach(function (l) {
+      if (l.getAttribute('data-a') === noStr || l.getAttribute('data-b') === noStr) l.classList.toggle('hi', on);
     });
-    $$('.node', svg).forEach(function (g) {
-      if (g.getAttribute('data-no') === no) g.classList.toggle('hi', on);
+    nodeEls.forEach(function (ne) {
+      if (String(ne.no) === noStr) ne.g.classList.toggle('hi', on);
+    });
+  }
+
+  /* 힘-기반 배치를 한 번에 계산해 버리지 않고, 매 프레임 한 번씩 풀어 가며
+     그대로 화면에 그린다 — 점들이 눈에 보이게 자리를 잡아 가는 연출. */
+  function animateForce(pos, nos, edges, lineEls, nodeEls, w, h) {
+    var n = nos.length;
+    var k = Math.sqrt((w * h) / Math.max(n, 1));
+    var frame = 0, maxFrames = 150;
+
+    function tick() {
+      for (var i = 0; i < n; i++) {
+        for (var j = i + 1; j < n; j++) {
+          var a = pos[nos[i]], b = pos[nos[j]];
+          var dx = a.x - b.x, dy = a.y - b.y;
+          var d2 = dx * dx + dy * dy || 0.01, d = Math.sqrt(d2);
+          var f = (k * k / d2) * 2.2;
+          var fx = dx / d * f, fy = dy / d * f;
+          a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+        }
+      }
+      edges.forEach(function (e) {
+        var a = pos[e[0]], b = pos[e[1]];
+        if (!a || !b) return;
+        var dx = b.x - a.x, dy = b.y - a.y;
+        var d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        var f = (d * d / k) * 0.02;
+        var fx = dx / d * f, fy = dy / d * f;
+        a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+      });
+      nos.forEach(function (no) {
+        var p = pos[no];
+        p.vx += (w / 2 - p.x) * 0.004;
+        p.vy += (h / 2 - p.y) * 0.004;
+        p.vx *= 0.85; p.vy *= 0.85;
+        p.x += Math.max(-12, Math.min(12, p.vx));
+        p.y += Math.max(-12, Math.min(12, p.vy));
+        var pad = 26;
+        p.x = Math.max(pad, Math.min(w - pad, p.x));
+        p.y = Math.max(pad, Math.min(h - pad, p.y));
+      });
+
+      lineEls.forEach(function (l, idx) {
+        var e = edges[idx], a = pos[e[0]], b = pos[e[1]];
+        l.setAttribute('x1', a.x.toFixed(1)); l.setAttribute('y1', a.y.toFixed(1));
+        l.setAttribute('x2', b.x.toFixed(1)); l.setAttribute('y2', b.y.toFixed(1));
+      });
+      nodeEls.forEach(function (ne) {
+        var p = pos[ne.no];
+        ne.c.setAttribute('cx', p.x.toFixed(1)); ne.c.setAttribute('cy', p.y.toFixed(1));
+        ne.label.setAttribute('x', p.x.toFixed(1));
+        ne.label.setAttribute('y', (p.y + ne.r + 11).toFixed(1));
+      });
+
+      frame++;
+      if (frame < maxFrames) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  /* ───────── 지도 모드 ─────────
+     제작국 하나당 좌표 하나(국가 중심 근사치)만 쓴다. 영화 개별 촬영 좌표가
+     아니라 "탐색 — 제작국으로 보기"와 같은 국가 단위 데이터를 지도 위에
+     옮겨 놓은 것뿐이다. 배경 지도는 위키미디어 커먼즈의 CC0 파일
+     (data/world-map.svg)을 그대로 쓰고, 처음 지도 탭을 열 때만 가져온다. */
+  var COUNTRY_GEO = {
+    '미국': [39.8, -98.6], '영국': [54.0, -2.0], '한국': [36.5, 127.8], '일본': [36.2, 138.3],
+    '이탈리아': [42.8, 12.6], '프랑스': [46.6, 2.5], '독일': [51.2, 10.4], '멕시코': [23.6, -102.5],
+    '홍콩': [22.3, 114.2], '소련': [55.75, 37.6], '서독': [50.7, 7.1], '중국': [35.9, 104.2],
+    '인도': [22.0, 79.0], '뉴질랜드': [-41.5, 173.0], '스페인': [40.0, -4.0], '오스트레일리아': [-25.0, 134.0],
+    '벨기에': [50.6, 4.5], '오스트리아': [47.6, 14.1], '스웨덴': [62.0, 15.0], '이란': [32.0, 53.0],
+    '브라질': [-10.0, -55.0]
+  };
+  var MAP_W = 1602.7142, MAP_H = 741.71301;
+
+  function loadWorldMapBg() {
+    if (state.worldMapG !== undefined) return Promise.resolve(state.worldMapG);
+    return fetch(BASE + 'data/world-map.svg', { cache: 'force-cache' })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (text) {
+        if (!text) { state.worldMapG = null; return null; }
+        var doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+        var g = doc.querySelector('g');
+        var path = g && g.querySelector('path');
+        if (path) { path.removeAttribute('style'); }
+        state.worldMapG = g ? document.importNode(g, true) : null;
+        return state.worldMapG;
+      })
+      .catch(function () { state.worldMapG = null; return null; });
+  }
+
+  function renderMapInto(container, movies) {
+    container.innerHTML = '<p class="loading">지도를 읽는 중…</p>';
+    var idx = {};
+    movies.forEach(function (m) {
+      countriesOf(m).forEach(function (c) { if (COUNTRY_GEO[c]) (idx[c] = idx[c] || []).push(m); });
+    });
+
+    loadWorldMapBg().then(function (bgG) {
+      container.innerHTML = '';
+      var svg = svgEl('svg', { class: 'map-svg', viewBox: '0 0 ' + MAP_W + ' ' + MAP_H, role: 'img', 'aria-label': '제작국 세계지도' });
+      if (bgG) svg.appendChild(bgG.cloneNode(true));
+      var gDots = svgEl('g', { class: 'map-dots' });
+
+      Object.keys(idx).forEach(function (c) {
+        var geo = COUNTRY_GEO[c];
+        var x = (geo[1] + 180) / 360 * MAP_W;
+        var y = (90 - geo[0]) / 180 * MAP_H;
+        var n = idx[c].length;
+        var r = 7 + Math.min(16, Math.sqrt(n) * 5.5);
+        var on = state.explore.region === c;
+        var g = svgEl('g', { class: 'map-dot' + (on ? ' on' : ''), 'data-region': c, tabindex: '0' });
+        var dot = svgEl('circle', { cx: x.toFixed(1), cy: y.toFixed(1), r: r.toFixed(1) });
+        var t = svgEl('title'); t.textContent = c + ' — ' + n + '편';
+        dot.appendChild(t);
+        var label = svgEl('text', { class: 'm-label', x: x.toFixed(1), y: (y - r - 6).toFixed(1), 'text-anchor': 'middle' });
+        label.textContent = c;
+        g.appendChild(dot); g.appendChild(label);
+        g.addEventListener('click', function () {
+          state.explore.region = state.explore.region === c ? null : c;
+          renderExplore();
+        });
+        g.addEventListener('keydown', function (e) { if (e.key === 'Enter') g.dispatchEvent(new Event('click')); });
+        gDots.appendChild(g);
+      });
+
+      svg.appendChild(gDots);
+      container.appendChild(svg);
+      container.insertAdjacentHTML('beforeend',
+        '<p class="graph-cap">점은 제작국 하나를 뜻한다(실제 촬영 좌표가 아니다). 점 크기는 그 나라에서 만든 영화 수, 점을 누르면 아래에 그 나라 영화가 나타난다. ' +
+        '세계지도: <a href="https://commons.wikimedia.org/wiki/File:Simplified_blank_world_map_without_Antartica_(no_borders).svg" target="_blank" rel="noopener">Crates, Wikimedia Commons(CC0)</a>.</p>');
+
+      var region = state.explore.region;
+      if (region && idx[region]) {
+        container.insertAdjacentHTML('beforeend', '<div class="grid">' + idx[region].map(cardHtml).join('') + '</div>');
+        wirePosterObserver();
+      } else {
+        container.insertAdjacentHTML('beforeend', '<p class="empty">지도 위 점을 하나 고르면 그 나라에서 만든 영화가 여기 나타난다.</p>');
+      }
     });
   }
 
@@ -521,16 +700,19 @@
     html += timelineHtml();
     html += '<div class="explore-tabs">' +
       '<button type="button" class="etab' + (ex.tab === 'region' ? ' on' : '') + '" data-tab="region">제작국으로 보기</button>' +
+      '<button type="button" class="etab' + (ex.tab === 'map' ? ' on' : '') + '" data-tab="map">지도로 보기</button>' +
       '<button type="button" class="etab' + (ex.tab === 'graph' ? ' on' : '') + '" data-tab="graph">관계망 그래프</button>' +
       '</div>';
-    html += '<div id="explore-body">' + (ex.tab === 'region' ? regionBodyHtml(movies) : '<div class="graph-wrap">' + graphSvg(movies) + '</div>') + '</div>';
+    html += '<div id="explore-body">' + (ex.tab === 'region' ? regionBodyHtml(movies) : '') + '</div>';
 
     el.doc.innerHTML = html;
     document.title = '탐색 — 영화도감';
 
     wireExplore();
+    var body = $('#explore-body');
     if (ex.tab === 'region') wirePosterObserver();
-    else wireGraph(el.doc);
+    else if (ex.tab === 'map') { body.className = 'map-wrap'; renderMapInto(body, movies); }
+    else { body.className = 'graph-wrap'; renderGraphInto(body, movies); }
   }
 
   function renderHome(r) {

@@ -284,14 +284,31 @@ html[data-theme="dark"] #theme .ic-moon { display: block; }
 .region-chip .cnt { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: var(--bg); color: var(--fg-mute2); }
 .region-chip.on .cnt { background: rgba(255,255,255,.25); color: var(--on-accent); }
 
-.graph-wrap { border: 1px solid var(--rule); border-radius: 11px; background: var(--card-bg); padding: 10px; }
-.graph-svg { display: block; width: 100%; height: auto; }
-.graph-svg .edges line { stroke: var(--fg-mute2); stroke-opacity: .28; stroke-width: 1; }
+.graph-wrap, .map-wrap { border: 1px solid var(--rule); border-radius: 11px; background: var(--card-bg); padding: 10px; }
+.graph-svg, .map-svg { display: block; width: 100%; height: auto; }
+.graph-svg .edges line { stroke: var(--fg-mute2); stroke-opacity: .28; stroke-width: 1; transition: stroke .1s ease, stroke-opacity .1s ease; }
 .graph-svg .edges line.hi { stroke: var(--accent); stroke-opacity: .9; stroke-width: 1.6; }
-.graph-svg .node circle { stroke: var(--card-bg); stroke-width: 1.4; cursor: pointer; transition: r .08s ease; }
-.graph-svg .node:hover circle, .graph-svg .node.hi circle { stroke: var(--accent); stroke-width: 2.2; }
-.graph-svg .node:focus circle { outline: none; stroke: var(--accent); stroke-width: 2.2; }
+.graph-svg .node circle { stroke: var(--card-bg); stroke-width: 1.4; cursor: pointer; transition: stroke .08s ease; }
+.graph-svg .node:hover circle, .graph-svg .node.hi circle { stroke: var(--accent); stroke-width: 2.4; }
+.graph-svg .node:focus circle { outline: none; stroke: var(--accent); stroke-width: 2.4; }
+.graph-svg .n-label {
+  font-size: 9px; font-weight: 600; fill: var(--fg-mute); opacity: .68; pointer-events: none;
+  paint-order: stroke; stroke: var(--card-bg); stroke-width: 3px; stroke-linejoin: round;
+  transition: opacity .1s ease, font-size .1s ease;
+}
+.graph-svg .node:hover .n-label, .graph-svg .node.hi .n-label, .graph-svg .node:focus .n-label {
+  opacity: 1; fill: var(--fg); font-size: 11px; font-weight: 800;
+}
 .graph-cap { margin: 10px 2px 2px; font-size: 12px; color: var(--fg-mute); }
+.graph-cap a { color: var(--link); }
+
+/* 지도 모드 */
+.map-svg path { fill: none; stroke: var(--fg-mute2); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+.map-dot circle { fill: var(--accent); fill-opacity: .72; stroke: var(--card-bg); stroke-width: 1.6; cursor: pointer; transition: fill-opacity .1s ease, r .1s ease; }
+.map-dot:hover circle, .map-dot.on circle, .map-dot:focus circle { fill-opacity: 1; outline: none; }
+.map-dot.on circle { stroke: var(--fg); }
+.map-dot .m-label { font-size: 13px; font-weight: 700; fill: var(--fg-mute); opacity: 0; text-anchor: middle; pointer-events: none; transition: opacity .1s ease; paint-order: stroke; stroke: var(--card-bg); stroke-width: 3px; }
+.map-dot:hover .m-label, .map-dot.on .m-label, .map-dot:focus .m-label { opacity: 1; fill: var(--fg); }
 
 @media (max-width: 640px) {
   .timeline { padding: 12px 12px 10px; }
