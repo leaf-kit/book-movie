@@ -114,7 +114,8 @@
     byChapter: {},
     pdPosters: {},
     tmdbIds: {},
-    q: ''
+    q: '',
+    explore: { tab: 'region', region: null, range: null }
   };
 
   function store(k, v) {
@@ -165,6 +166,7 @@
 
   function renderToc() {
     var html = '<a class="home-link" href="#/" data-route="home">전체</a>';
+    html += '<a class="home-link" href="#/explore" data-route="explore">탐색 — 제작국·시대·관계망</a>';
     state.data.parts.forEach(function (p) {
       var chs = state.data.chapters.filter(function (c) { return c.part === p.key; });
       var cnt = state.data.movies.filter(function (m) { return m.part === p.key; }).length;
@@ -219,6 +221,7 @@
     if (pm) return { type: 'part', key: pm[1] };
     var cm = s.match(/^chapter\/([\w-]+)/);
     if (cm) return { type: 'chapter', key: cm[1] };
+    if (s === 'explore' || s.indexOf('explore/') === 0) return { type: 'explore' };
     return { type: 'home' };
   }
 
@@ -308,6 +311,226 @@
     } else {
       ph.classList.add('no-img');
     }
+  }
+
+  /* ───────── 탐색(시간축 · 제작국 · 관계망) ───────── */
+
+  function yearNum(m) { return parseInt((m.year.match(/\d{4}/) || [0])[0], 10); }
+
+  function countriesOf(m) { return m.country.split('·').map(function (s) { return s.trim(); }); }
+
+  function inRange(m, range) {
+    if (!range) return true;
+    var y = yearNum(m);
+    return y >= range[0] && y <= range[1];
+  }
+
+  /* data.movies 안의 seealso 항목 중 이 책 200편에 걸리는 것만 추려 준다.
+     상세 페이지의 "같이 보면 좋은 작품" 매칭과 같은 규칙을 쓴다. */
+  function resolveSeealso(m) {
+    return m.seealso.map(function (s) {
+      return state.data.movies.filter(function (x) { return s.indexOf(x.title) === 0; })[0];
+    }).filter(Boolean);
+  }
+
+  function buildGraphEdges(movies) {
+    var inSet = {};
+    movies.forEach(function (m) { inSet[m.no] = true; });
+    var seen = {}, edges = [];
+    movies.forEach(function (m) {
+      resolveSeealso(m).forEach(function (t) {
+        if (!inSet[t.no] || t.no === m.no) return;
+        var key = m.no < t.no ? m.no + '-' + t.no : t.no + '-' + m.no;
+        if (seen[key]) return;
+        seen[key] = true;
+        edges.push([m.no, t.no]);
+      });
+    });
+    return edges;
+  }
+
+  /* 아주 단순한 힘-기반(force-directed) 배치. 외부 그래프 라이브러리를
+     쓰지 않고, 반발력(모든 점 사이)과 인력(이어진 점 사이)만으로 자리를
+     잡는다. 200개 점 기준으로도 수십 ms 안에 끝난다. */
+  function forceLayout(nos, edges, w, h) {
+    var pos = {}, n = nos.length;
+    nos.forEach(function (no, i) {
+      var a = (i / Math.max(n, 1)) * Math.PI * 2;
+      pos[no] = { x: w / 2 + Math.cos(a) * w * 0.32, y: h / 2 + Math.sin(a) * h * 0.32, vx: 0, vy: 0 };
+    });
+    var k = Math.sqrt((w * h) / Math.max(n, 1));
+    for (var it = 0; it < 160; it++) {
+      for (var i = 0; i < n; i++) {
+        for (var j = i + 1; j < n; j++) {
+          var a = pos[nos[i]], b = pos[nos[j]];
+          var dx = a.x - b.x, dy = a.y - b.y;
+          var d2 = dx * dx + dy * dy || 0.01, d = Math.sqrt(d2);
+          var f = (k * k / d2) * 2.2;
+          var fx = dx / d * f, fy = dy / d * f;
+          a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+        }
+      }
+      edges.forEach(function (e) {
+        var a = pos[e[0]], b = pos[e[1]];
+        if (!a || !b) return;
+        var dx = b.x - a.x, dy = b.y - a.y;
+        var d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        var f = (d * d / k) * 0.02;
+        var fx = dx / d * f, fy = dy / d * f;
+        a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+      });
+      nos.forEach(function (no) {
+        var p = pos[no];
+        p.vx += (w / 2 - p.x) * 0.004;
+        p.vy += (h / 2 - p.y) * 0.004;
+        p.vx *= 0.85; p.vy *= 0.85;
+        p.x += Math.max(-12, Math.min(12, p.vx));
+        p.y += Math.max(-12, Math.min(12, p.vy));
+        var pad = 26;
+        p.x = Math.max(pad, Math.min(w - pad, p.x));
+        p.y = Math.max(pad, Math.min(h - pad, p.y));
+      });
+    }
+    return pos;
+  }
+
+  function graphSvg(movies) {
+    if (movies.length < 2) return '<p class="empty">이 구간에는 이어 볼 작품이 둘 미만이다. 시간축에서 범위를 넓혀 본다.</p>';
+    var nos = movies.map(function (m) { return m.no; });
+    var edges = buildGraphEdges(movies);
+    var W = 920, H = 560;
+    var pos = forceLayout(nos, edges, W, H);
+    var degree = {};
+    edges.forEach(function (e) {
+      degree[e[0]] = (degree[e[0]] || 0) + 1;
+      degree[e[1]] = (degree[e[1]] || 0) + 1;
+    });
+
+    var svg = '<svg class="graph-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="영화 관계망 그래프">';
+    svg += '<g class="edges">' + edges.map(function (e) {
+      var a = pos[e[0]], b = pos[e[1]];
+      return '<line x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1) + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1) +
+        '" data-a="' + e[0] + '" data-b="' + e[1] + '"></line>';
+    }).join('') + '</g>';
+    svg += '<g class="nodes">' + movies.map(function (m) {
+      var p = pos[m.no], part = partOf(m.part);
+      var r = 5 + Math.min(9, (degree[m.no] || 0) * 1.7);
+      return '<g class="node" data-no="' + m.no + '" tabindex="0">' +
+        '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + part.color + '">' +
+        '<title>' + esc(m.title) + ' (' + esc(m.year) + ')</title></circle></g>';
+    }).join('') + '</g>';
+    svg += '</svg>';
+    svg += '<p class="graph-cap">점 크기는 "같이 보면 좋은 작품"으로 몇 번 이어졌는지를 뜻한다. 점을 누르면 그 작품으로 간다.</p>';
+    return svg;
+  }
+
+  function wireGraph(root) {
+    var svg = $('.graph-svg', root);
+    if (!svg) return;
+    $$('.node', svg).forEach(function (g) {
+      var no = g.getAttribute('data-no');
+      g.addEventListener('mouseenter', function () { setGraphHi(svg, no, true); });
+      g.addEventListener('mouseleave', function () { setGraphHi(svg, no, false); });
+      g.addEventListener('click', function () { go('#/movie/' + no); });
+      g.addEventListener('keydown', function (e) { if (e.key === 'Enter') go('#/movie/' + no); });
+    });
+  }
+  function setGraphHi(svg, no, on) {
+    $$('.edges line', svg).forEach(function (l) {
+      if (l.getAttribute('data-a') === no || l.getAttribute('data-b') === no) l.classList.toggle('hi', on);
+    });
+    $$('.node', svg).forEach(function (g) {
+      if (g.getAttribute('data-no') === no) g.classList.toggle('hi', on);
+    });
+  }
+
+  function timelineHtml() {
+    var movies = state.data.movies;
+    var years = movies.map(yearNum);
+    var minY = Math.min.apply(null, years), maxY = Math.max.apply(null, years);
+    var minDecade = Math.floor(minY / 10) * 10, maxDecade = Math.floor(maxY / 10) * 10;
+    var span = (maxY - minY) || 1;
+    var range = state.explore.range;
+
+    var dots = movies.map(function (m) {
+      var pct = ((yearNum(m) - minY) / span * 100).toFixed(2);
+      return '<a class="t-dot" style="left:' + pct + '%" href="#/movie/' + m.no + '" title="' + esc(m.title) + ' (' + esc(m.year) + ')"></a>';
+    }).join('');
+
+    var decades = '<button type="button" class="decade' + (!range ? ' on' : '') + '" data-from="" data-to="">전체</button>';
+    for (var d = minDecade; d <= maxDecade; d += 10) {
+      var on = range && range[0] === d;
+      decades += '<button type="button" class="decade' + (on ? ' on' : '') + '" data-from="' + d + '" data-to="' + (d + 9) + '">' + d + '년대</button>';
+    }
+    return '<div class="timeline"><div class="t-track">' + dots + '</div><div class="t-decades">' + decades + '</div></div>';
+  }
+
+  function regionBodyHtml(movies) {
+    var idx = {};
+    movies.forEach(function (m) {
+      countriesOf(m).forEach(function (c) { (idx[c] = idx[c] || []).push(m); });
+    });
+    var countries = Object.keys(idx).sort(function (a, b) { return idx[b].length - idx[a].length || a.localeCompare(b, 'ko'); });
+    var region = state.explore.region;
+
+    var html = '<p class="desc" style="margin:0 0 14px;color:var(--fg-mute);font-size:13px;">제작국(자본·제작사 국적) 기준이다 — 실제 촬영 장소와 다를 수 있다(예: 『아라비아의 로렌스』는 영국 제작이지만 촬영은 요르단·모로코·스페인에서 했다).</p>';
+    html += '<div class="region-chips">' + countries.map(function (c) {
+      var on = region === c;
+      return '<button type="button" class="chip region-chip' + (on ? ' on' : '') + '" style="' + (on ? 'background:var(--accent);border-color:var(--accent);color:var(--on-accent)' : '') + '" data-region="' + esc(c) + '">' +
+        esc(c) + '<span class="cnt">' + idx[c].length + '</span></button>';
+    }).join('') + '</div>';
+
+    if (region && idx[region]) {
+      html += '<div class="grid">' + idx[region].map(cardHtml).join('') + '</div>';
+    } else {
+      html += '<p class="empty">제작국을 하나 고르면 그 나라에서 만든 영화가 여기 나타난다.</p>';
+    }
+    return html;
+  }
+
+  function wireExplore() {
+    $$('.etab', el.doc).forEach(function (b) {
+      b.addEventListener('click', function () {
+        state.explore.tab = b.getAttribute('data-tab');
+        renderExplore();
+      });
+    });
+    $$('.decade', el.doc).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var f = b.getAttribute('data-from'), t = b.getAttribute('data-to');
+        state.explore.range = f === '' ? null : [parseInt(f, 10), parseInt(t, 10)];
+        renderExplore();
+      });
+    });
+    $$('.region-chip', el.doc).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var c = b.getAttribute('data-region');
+        state.explore.region = state.explore.region === c ? null : c;
+        renderExplore();
+      });
+    });
+  }
+
+  function renderExplore() {
+    var ex = state.explore;
+    var movies = state.data.movies.filter(function (m) { return inRange(m, ex.range); });
+
+    var html = '<div class="result-head"><div><h3>탐색</h3></div><span class="n">' + movies.length + '편</span></div>';
+    html += '<p class="desc" style="margin:-6px 0 20px;color:var(--fg-mute);font-size:13.5px;line-height:1.75;max-width:680px;">' +
+      '제작국과 시대, 추천 관계로 영화를 둘러본다. 위 시간축에서 연대를 고르면 아래 결과도 같이 걸러진다.</p>';
+    html += timelineHtml();
+    html += '<div class="explore-tabs">' +
+      '<button type="button" class="etab' + (ex.tab === 'region' ? ' on' : '') + '" data-tab="region">제작국으로 보기</button>' +
+      '<button type="button" class="etab' + (ex.tab === 'graph' ? ' on' : '') + '" data-tab="graph">관계망 그래프</button>' +
+      '</div>';
+    html += '<div id="explore-body">' + (ex.tab === 'region' ? regionBodyHtml(movies) : '<div class="graph-wrap">' + graphSvg(movies) + '</div>') + '</div>';
+
+    el.doc.innerHTML = html;
+    document.title = '탐색 — 영화도감';
+
+    wireExplore();
+    if (ex.tab === 'region') wirePosterObserver();
+    else wireGraph(el.doc);
   }
 
   function renderHome(r) {
@@ -449,6 +672,9 @@
     if (r.type === 'movie') {
       syncToc('');
       renderMovie(r.no);
+    } else if (r.type === 'explore') {
+      syncToc('explore');
+      renderExplore();
     } else {
       var rk = r.type === 'home' ? 'home' : r.type + ':' + r.key;
       syncToc(rk);
